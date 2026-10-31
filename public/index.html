@@ -74,10 +74,12 @@
   .badge.amber { color: #b7791f; border-color: currentColor; }
   .badge.blue { color: #3b6ef5; border-color: currentColor; }
   .badge.gray { color: var(--muted); border-color: var(--border); }
+  .badge.green { color: #2f9e44; border-color: currentColor; }
   @media (prefers-color-scheme: dark) {
     .badge.red { color: #ff7b7b; }
     .badge.amber { color: #e3b341; }
     .badge.blue { color: #7c9cff; }
+    .badge.green { color: #51cf66; }
   }
   button {
     font: inherit; font-size: 12.5px; padding: 5px 11px; border-radius: 7px; cursor: pointer;
@@ -88,7 +90,14 @@
   button.danger { color: var(--danger); }
   button.danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
   button:disabled { opacity: .45; cursor: not-allowed; }
+  select {
+    font: inherit; font-size: 12.5px; padding: 5px 8px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--card); color: var(--fg); max-width: 280px;
+  }
   .note { padding: 12px 16px; background: var(--warn-bg); color: var(--warn-fg); font-size: 13px; border-radius: 10px; margin-bottom: 16px; }
+  .move-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .move-bar select { max-width: 380px; }
+  .move-hint { color: var(--muted); font-size: 12px; }
   .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 13px; max-width: 90vw; }
   .muted { color: var(--muted); }
   a { color: var(--accent); }
@@ -142,6 +151,22 @@
     <div class="card-body" data-body></div>
   </section>
 
+  <section class="card" id="sec-sessions">
+    <div class="card-head">
+      <h2>会话移动</h2>
+      <span class="count" data-count></span>
+      <span class="spacer"></span>
+      <label class="muted"><input type="checkbox" data-select="sessions"> 全选</label>
+    </div>
+    <div class="move-bar">
+      <span class="muted">已选 <b id="move-count">0</b> 个，移动到</span>
+      <select id="move-target"></select>
+      <button data-act="move-sessions" id="move-button" disabled>移动所选</button>
+      <span class="move-hint">子会话会一起移动</span>
+    </div>
+    <div class="card-body" data-body></div>
+  </section>
+
   <section class="card" id="sec-legacy">
     <div class="card-head">
       <h2>旧版 storage 缓存</h2>
@@ -164,7 +189,7 @@
 </div>
 
 <script>
-const state = { data: null }
+const state = { data: null, moveTarget: '' }
 
 const fmtBytes = (n) => {
   if (!n) return '0 B'
@@ -202,13 +227,47 @@ function rowsChecked(selector) {
   return [...document.querySelectorAll(`${selector} input[type=checkbox][data-row]`)].filter((el) => el.checked).map((el) => el.dataset.id)
 }
 
+const projectName = (value) => {
+  const parts = String(value || '').split(/[\\/]/).filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : '—'
+}
+
+function updateMoveBar() {
+  const count = document.querySelectorAll('#sec-sessions input[type=checkbox][data-row]:checked').length
+  document.getElementById('move-count').textContent = String(count)
+  const button = document.getElementById('move-button')
+  button.disabled = count === 0
+  button.textContent = count === 0 ? '移动所选' : `移动所选（${count}）`
+}
+
+function renderSessionRows() {
+  const d = state.data
+  const target = document.getElementById('move-target')
+  const targetId = target.value || state.moveTarget
+  const all = d.sessions || []
+  const visible = targetId ? all.filter((session) => session.projectId !== targetId) : all
+  document.querySelector('#sec-sessions [data-count]').textContent = `${visible.length} 个`
+  document.querySelector('#sec-sessions [data-body]').innerHTML = visible.length === 0
+    ? '<div class="empty">所选项目里没有其它会话可移动。</div>'
+    : `<table><thead><tr><th style="width:34px"></th><th>标题</th><th>项目</th><th>更新时间</th><th class="num">消息</th></tr></thead><tbody>
+      ${visible.map((s) => `<tr>
+        <td><input type="checkbox" data-row data-id="${esc(s.id)}"></td>
+        <td>${esc(s.title)}${s.archived ? ' <span class="badge">已归档</span>' : ''}</td>
+        <td class="path" title="${esc(s.project || s.directory)}">${esc(projectName(s.project || s.directory))}</td>
+        <td class="muted">${fmtDate(s.updatedAt)}</td>
+        <td class="num">${s.messages}</td>
+      </tr>`).join('')}
+    </tbody></table>`
+  updateMoveBar()
+}
+
 function render() {
   const d = state.data
   const setPaths = () => {
     const rows = [
       { label: '数据目录', value: d.paths.opencode },
       { label: 'OpenChamber 设置', value: d.settingsFound ? d.paths.settings : null },
-      { label: 'OpenCode 桌面版 设置', value: d.desktopSettingsFound ? d.paths.desktopSettings : null },
+      { label: 'OpenCode 设置', value: d.desktopSettingsFound ? d.paths.desktopSettings : null },
     ]
     document.getElementById('paths').innerHTML = rows.map(({ label, value }) =>
       `<div class="path-row"><span class="path-label">${esc(label)}</span>${value
@@ -274,6 +333,18 @@ function render() {
       </tr>`).join('')}
     </tbody></table>`
 
+  // sessions move
+  const target = document.getElementById('move-target')
+  const previousTarget = state.moveTarget || target.value
+  target.innerHTML = (d.projects || [])
+    .map((p) => `<option value="${esc(p.id)}">${esc(p.worktree)}${p.open ? '' : '（已关闭）'}</option>`)
+    .join('')
+  const options = [...target.options]
+  if (previousTarget && options.some((option) => option.value === previousTarget)) target.value = previousTarget
+  else if (options.length > 0) target.value = options[0].value
+  state.moveTarget = target.value
+  renderSessionRows()
+
   // legacy storage
   const legacy = d.legacyStorage
   document.querySelector('#sec-legacy [data-count]').innerHTML = legacy
@@ -289,6 +360,7 @@ function render() {
     'delete-sessions': '删除会话',
     'delete-orphans': '删除记录',
     'legacy-storage': '旧版缓存',
+    'move-sessions': '移动会话',
     'restore-sessions': '归档还原前',
     'settings-before-reopen': '重开设置变更',
   }
@@ -297,6 +369,7 @@ function render() {
     'delete-sessions': 'amber',
     'delete-orphans': 'blue',
     'legacy-storage': 'gray',
+    'move-sessions': 'green',
     'restore-sessions': 'gray',
     'settings-before-reopen': 'gray',
   }
@@ -314,7 +387,9 @@ function render() {
               ? `${b.sessions} 个会话 / ${b.messages} 条消息`
               : b.kind === 'delete-orphans'
                 ? `${b.entries} 条记录`
-                : '—'
+                : b.kind === 'move-sessions'
+                  ? `${b.sessions} 个会话`
+                  : '—'
         const canRestore = b.restorable || b.kind === 'legacy-storage'
         const targets = b.targets || []
         const targetLabel = (value) => {
@@ -339,11 +414,11 @@ function render() {
     </tbody></table></div>`
 }
 
-async function apply(action, ids, entries, name) {
+async function apply(action, ids, entries, name, target) {
   const res = await fetch('/api/apply', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ action, ids, entries, name }),
+    body: JSON.stringify({ action, ids, entries, name, target }),
   })
   const body = await res.json()
   if (!body.ok) { toast(`失败：${body.error}`); return }
@@ -357,7 +432,9 @@ async function apply(action, ids, entries, name) {
     if (result.files != null) parts.push(result.removed ? `已永久删除 ${result.files} 个文件（${fmtBytes(result.bytes)}）` : result.message)
     else parts.push(result.removed ? '已删除' : result.message)
   }
-  if (result.added != null) {
+  if (result.movedCount != null) parts.push(result.movedCount ? `已移动 ${result.movedCount} 个会话` : '会话已经在目标项目')
+  if (result.cli) parts.push(`已在 opencode 数据中重开 ${result.touched} 个项目`)
+  else if (result.added != null) {
     parts.push(result.added ? `重开 ${result.added} 个项目` : '项目已经打开')
     if (result.added && result.live === false) parts.push('需要重启 OpenChamber 才会显示')
   }
@@ -368,6 +445,10 @@ async function apply(action, ids, entries, name) {
 
 document.addEventListener('change', (event) => {
   const el = event.target
+  if (el.id === 'move-target') {
+    state.moveTarget = el.value
+    renderSessionRows()
+  }
   if (el.matches('[data-select]')) {
     const card = el.closest('.card')
     card.querySelectorAll('input[type=checkbox][data-row]').forEach((box) => (box.checked = el.checked))
@@ -378,6 +459,7 @@ document.addEventListener('change', (event) => {
     const selectAll = card.querySelector('[data-select]')
     if (selectAll) selectAll.checked = all.length > 0 && all.every((box) => box.checked)
   }
+  updateMoveBar()
 })
 
 document.addEventListener('click', async (event) => {
@@ -408,6 +490,19 @@ document.addEventListener('click', async (event) => {
       }))
       if (projectIds.length) await apply('deleteProjects', projectIds)
       if (entries.length) await apply('deleteOrphanEntries', [], entries)
+    } else if (act === 'move-sessions') {
+      const ids = rowsChecked('#sec-sessions')
+      if (!ids.length) return toast('先勾选会话')
+      const target = document.getElementById('move-target')
+      if (!target.value) return toast('先选目标项目')
+      const label = target.selectedOptions[0]?.textContent || target.value
+      const titles = [...document.querySelectorAll('#sec-sessions tbody tr')]
+        .filter((row) => row.querySelector('input[type=checkbox][data-row]:checked'))
+        .map((row) => row.children[1].textContent.trim())
+        .slice(0, 5)
+      const list = titles.length ? `\n\n${titles.join('\n')}${ids.length > 5 ? '\n…' : ''}` : ''
+      if (!confirm(`把 ${ids.length} 个会话移动到「${label}」？${list}`)) return
+      await apply('moveSessions', ids, null, null, target.value)
     } else if (act === 'restore-sessions') {
       const ids = rowsChecked('#sec-archived')
       if (!ids.length) return toast('先勾选会话')
