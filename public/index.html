@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>opencode 清理工具</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f6f7; --card: #fff; --fg: #1b1b1f; --muted: #6b6b76;
+    --border: #e3e3e8; --accent: #3b6ef5; --accent-fg: #fff;
+    --danger: #d93a3a; --ok: #1f9d55 --warn-bg: #fff4e0; --warn-fg: #8a5300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --card: #1e1e24; --fg: #e9e9ee; --muted: #9696a3;
+      --border: #2f2f38; --accent: #6e93ff; --accent-fg: #101015;
+      --danger: #ff6b6b; --ok: #51cf66; --warn-bg: #33260f; --warn-fg: #ffc46b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 80px; }
+  header { margin-bottom: 18px; }
+  header h1 { font-size: 20px; margin: 0; }
+  .header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  .paths { display: grid; gap: 6px; }
+  .path-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .path-label { color: var(--muted); font-size: 12.5px; min-width: 132px; }
+  .path-value {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+    padding: 2px 8px; word-break: break-all;
+  }
+  .path-note {
+    color: var(--muted); font-size: 12px;
+    background: var(--card); border: 1px dashed var(--border); border-radius: 6px;
+    padding: 2px 8px;
+  }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+  .card-head { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .card-head h2 { font-size: 15px; margin: 0; }
+  .card-head .count { color: var(--muted); font-size: 12px; }
+  .card-head .spacer { flex: 1; }
+  .card-body { padding: 4px 0; }
+  .empty { padding: 16px; color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 16px; font-size: 13px; vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tbody tr + tr td { border-top: 1px solid var(--border); }
+  td:last-child { white-space: nowrap; }
+  td:last-child button + button { margin-left: 4px; }
+  th.num { text-align: right; }
+  td.target { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .table-scroll { overflow-x: auto; }
+  .table-scroll th { white-space: nowrap; }
+  table.backup-table { width: 100%; table-layout: fixed; }
+  .backup-table th, .backup-table td { padding: 8px 12px; vertical-align: middle; white-space: nowrap; }
+  .backup-table th:first-child, .backup-table td:first-child { padding-left: 0; }
+  .backup-table th:last-child, .backup-table td:last-child { padding-right: 0; }
+  .backup-table button { padding: 3px 8px; font-size: 12px; }
+  .backup-table .target-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .backup-table td:first-child { font-variant-numeric: tabular-nums; }
+  .backup-table th, .backup-table td { text-align: center; }
+  .backup-table td.num { text-align: center; }
+  td.path, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; word-break: break-all; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 11.5px; border: 1px solid var(--border); }
+  .badge.danger { color: var(--danger); border-color: currentColor; }
+  .badge.red { color: #d93a3a; border-color: currentColor; }
+  .badge.amber { color: #b7791f; border-color: currentColor; }
+  .badge.blue { color: #3b6ef5; border-color: currentColor; }
+  .badge.gray { color: var(--muted); border-color: var(--border); }
+  @media (prefers-color-scheme: dark) {
+    .badge.red { color: #ff7b7b; }
+    .badge.amber { color: #e3b341; }
+    .badge.blue { color: #7c9cff; }
+  }
+  button {
+    font: inherit; font-size: 12.5px; padding: 5px 11px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card); color: var(--fg);
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  button.danger { color: var(--danger); }
+  button.danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .note { padding: 12px 16px; background: var(--warn-bg); color: var(--warn-fg); font-size: 13px; border-radius: 10px; margin-bottom: 16px; }
+  .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 13px; max-width: 90vw; }
+  .muted { color: var(--muted); }
+  a { color: var(--accent); }
+  input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="header-top">
+      <h1>opencode 清理工具</h1>
+      <button id="refresh">重新扫描数据</button>
+    </div>
+    <div id="paths" class="paths">加载中…</div>
+  </header>
+
+  <div id="warning"></div>
+
+  <section class="card" id="sec-closed">
+    <div class="card-head">
+      <h2>已关闭的项目</h2>
+      <span class="count" data-count></span>
+      <span class="spacer"></span>
+      <label class="muted"><input type="checkbox" data-select="closed"> 全选</label>
+      <button data-act="reopen-selected">重开所选</button>
+      <button class="danger" data-act="delete-projects">删除所选项目</button>
+    </div>
+    <div class="card-body" data-body></div>
+  </section>
+
+  <section class="card" id="sec-empty">
+    <div class="card-head">
+      <h2>空项目 / 孤儿记录</h2>
+      <span class="count" data-count></span>
+      <span class="spacer"></span>
+      <label class="muted"><input type="checkbox" data-select="empty"> 全选</label>
+      <button class="danger" data-act="delete-empty">删除所选项</button>
+    </div>
+    <div class="card-body" data-body></div>
+  </section>
+
+  <section class="card" id="sec-archived">
+    <div class="card-head">
+      <h2>已归档会话</h2>
+      <span class="count" data-count></span>
+      <span class="spacer"></span>
+      <label class="muted"><input type="checkbox" data-select="archived"> 全选</label>
+      <button data-act="restore-sessions">还原所选</button>
+      <button class="danger" data-act="delete-sessions">删除所选</button>
+    </div>
+    <div class="card-body" data-body></div>
+  </section>
+
+  <section class="card" id="sec-legacy">
+    <div class="card-head">
+      <h2>旧版 storage 缓存</h2>
+      <span class="count" data-count></span>
+      <span class="spacer"></span>
+      <button class="danger" data-act="delete-legacy">移动到备份</button>
+      <button class="danger" data-act="purge-legacy">备份后删除</button>
+    </div>
+    <div class="card-body" data-body></div>
+  </section>
+
+  <section class="card" id="sec-backups">
+    <div class="card-head">
+      <h2>备份与还原</h2>
+      <span class="count" data-count></span>
+      <span class="spacer"></span>
+    </div>
+    <div class="card-body" data-body></div>
+  </section>
+</div>
+
+<script>
+const state = { data: null }
+
+const fmtBytes = (n) => {
+  if (!n) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++ }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+const fmtDate = (ts) => ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : '—'
+const fmtDateShort = (ts) => {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+
+function toast(text) {
+  const el = document.createElement('div')
+  el.className = 'toast'
+  el.textContent = text
+  document.body.appendChild(el)
+  setTimeout(() => el.remove(), 5000)
+}
+
+async function load() {
+  const res = await fetch('/api/state')
+  const body = await res.json()
+  if (!body.ok) { toast(body.error); return }
+  state.data = body.data
+  render()
+}
+
+function rowsChecked(selector) {
+  return [...document.querySelectorAll(`${selector} input[type=checkbox][data-row]`)].filter((el) => el.checked).map((el) => el.dataset.id)
+}
+
+function render() {
+  const d = state.data
+  const setPaths = () => {
+    const rows = [
+      { label: '数据目录', value: d.paths.opencode },
+      { label: 'OpenChamber 设置', value: d.settingsFound ? d.paths.settings : null },
+      { label: 'OpenCode 桌面版 设置', value: d.desktopSettingsFound ? d.paths.desktopSettings : null },
+    ]
+    document.getElementById('paths').innerHTML = rows.map(({ label, value }) =>
+      `<div class="path-row"><span class="path-label">${esc(label)}</span>${value
+        ? `<span class="path-value">${esc(value)}</span>`
+        : '<span class="path-note">不存在</span>'}</div>`,
+    ).join('')
+  }
+  setPaths()
+
+  document.getElementById('warning').innerHTML = d.settingsFound
+    ? ''
+    : '<div class="note">没有读到 OpenChamber 的 settings.json，无法判断哪些项目是打开的。为避免误删，本次不提供关闭项目的删除操作。</div>'
+
+  // closed projects
+  const closed = d.settingsFound ? d.closedProjects : []
+  document.querySelector('#sec-closed [data-count]').textContent = `${closed.length} 个`
+  document.querySelector('#sec-closed [data-body]').innerHTML = closed.length === 0
+    ? '<div class="empty">没有已关闭的项目。</div>'
+    : `<table><thead><tr><th style="width:34px"></th><th>目录</th><th class="num">会话</th><th class="num">消息</th><th>状态</th><th style="width:72px"></th></tr></thead><tbody>
+      ${closed.map((p) => `<tr>
+        <td><input type="checkbox" data-row data-id="${esc(p.id)}"></td>
+        <td class="path">${esc(p.worktree)}</td>
+        <td class="num">${p.sessions}</td>
+        <td class="num">${p.messages}</td>
+        <td>${p.sessions === 0 ? '<span class="badge">空项目</span>' : ''}${p.dirExists ? '' : ' <span class="badge danger">目录不存在</span>'}</td>
+        <td><button data-act="reopen" data-id="${esc(p.id)}">重开</button></td>
+      </tr>`).join('')}
+    </tbody></table>`
+
+  // empty projects + orphan entries
+  const empty = [...d.emptyProjects.map((p) => ({ kind: 'project', p })), ...d.orphanEntries.map((e) => ({ kind: 'entry', e }))]
+  document.querySelector('#sec-empty [data-count]').textContent = `${empty.length} 项`
+  document.querySelector('#sec-empty [data-body]').innerHTML = empty.length === 0
+    ? '<div class="empty">没有空项目或孤儿记录。</div>'
+    : `<table><thead><tr><th style="width:34px"></th><th>内容</th><th>说明</th><th style="width:72px"></th></tr></thead><tbody>
+      ${empty.map((item) => item.kind === 'project'
+        ? `<tr>
+            <td><input type="checkbox" data-row data-kind="project" data-id="${esc(item.p.id)}"></td>
+            <td class="path">${esc(item.p.worktree)}</td>
+            <td class="muted">已关闭的项目，但没有任何会话</td>
+            <td><button data-act="reopen" data-id="${esc(item.p.id)}">重开</button></td>
+          </tr>`
+        : `<tr>
+            <td><input type="checkbox" data-row data-kind="entry" data-table="${esc(item.e.table)}" data-project="${esc(item.e.projectId)}" data-dir="${esc(item.e.directory)}"></td>
+            <td class="path">${esc(item.e.directory)}</td>
+            <td class="muted">${item.e.table === 'worktree' ? '工作树' : '项目目录'}记录，目录已不存在（项目：${esc(item.e.worktree)}）</td>
+            <td></td>
+          </tr>`).join('')}
+    </tbody></table>`
+
+  // archived sessions
+  const archived = d.archivedSessions
+  document.querySelector('#sec-archived [data-count]').textContent = `${archived.length} 个`
+  document.querySelector('#sec-archived [data-body]').innerHTML = archived.length === 0
+    ? '<div class="empty">没有已归档会话。</div>'
+    : `<table><thead><tr><th style="width:34px"></th><th>标题</th><th>项目</th><th>归档时间</th><th class="num">消息</th></tr></thead><tbody>
+      ${archived.map((s) => `<tr>
+        <td><input type="checkbox" data-row data-id="${esc(s.id)}"></td>
+        <td>${esc(s.title)}</td>
+        <td class="path">${esc(s.project || s.directory)}</td>
+        <td class="muted">${fmtDate(s.archivedAt)}</td>
+        <td class="num">${s.messages}</td>
+      </tr>`).join('')}
+    </tbody></table>`
+
+  // legacy storage
+  const legacy = d.legacyStorage
+  document.querySelector('#sec-legacy [data-count]').innerHTML = legacy
+    ? `${legacy.files} 个文件 · ${fmtBytes(legacy.bytes)}`
+    : '<span class="path-note">不存在</span>'
+  document.querySelector('#sec-legacy [data-body]').innerHTML = legacy
+    ? `<table><tbody><tr><td class="path">${esc(legacy.path)}</td><td class="muted">v1 JSON 数据目录（opencode.db 之前的存储格式）</td></tr></tbody></table>`
+    : '<div class="empty">没有旧版 storage 目录。</div>'
+
+  // backups
+  const kindLabels = {
+    'delete-projects': '删除项目',
+    'delete-sessions': '删除会话',
+    'delete-orphans': '删除记录',
+    'legacy-storage': '旧版缓存',
+    'restore-sessions': '归档还原前',
+    'settings-before-reopen': '重开设置变更',
+  }
+  const kindTones = {
+    'delete-projects': 'red',
+    'delete-sessions': 'amber',
+    'delete-orphans': 'blue',
+    'legacy-storage': 'gray',
+    'restore-sessions': 'gray',
+    'settings-before-reopen': 'gray',
+  }
+  const backups = d.backups || []
+  document.querySelector('#sec-backups [data-count]').textContent = `${backups.length} 份`
+  document.querySelector('#sec-backups [data-body]').innerHTML = backups.length === 0
+    ? '<div class="empty">还没有备份。删除数据或重开项目时会自动备份到这里。</div>'
+    : `<div class="table-scroll"><table class="backup-table"><colgroup><col style="width:15%"><col style="width:29%"><col style="width:11%"><col style="width:16%"><col style="width:10%"><col style="width:19%"></colgroup><thead><tr><th>时间</th><th>对象</th><th class="c">类型</th><th class="c">内容</th><th class="num">大小</th><th class="c">操作</th></tr></thead><tbody>
+      ${backups.map((b) => {
+        const content = b.kind === 'legacy-storage'
+          ? `${b.files} 个文件`
+          : b.kind === 'delete-projects'
+            ? `${b.projects} 个项目 / ${b.sessions} 个会话`
+            : b.kind === 'delete-sessions'
+              ? `${b.sessions} 个会话 / ${b.messages} 条消息`
+              : b.kind === 'delete-orphans'
+                ? `${b.entries} 条记录`
+                : '—'
+        const canRestore = b.restorable || b.kind === 'legacy-storage'
+        const targets = b.targets || []
+        const targetLabel = (value) => {
+          const s = String(value || '')
+          if (s.includes('/') || s.includes('\\')) return s.split(/[\\/]/).filter(Boolean).pop() || s
+          return s
+        }
+        const first = targets[0] || '—'
+        const more = targets.length > 1 ? ` <span class="badge">+${targets.length - 1}</span>` : ''
+        return `<tr>
+          <td class="muted">${fmtDateShort(b.createdAt)}</td>
+          <td class="target" title="${esc(targets.join('\n'))}"><div class="target-label">${esc(targetLabel(first))}${more}</div></td>
+          <td class="c"><span class="badge ${kindTones[b.kind] || 'gray'}">${esc(kindLabels[b.kind] || b.kind)}</span></td>
+          <td class="muted c">${content}</td>
+          <td class="num">${fmtBytes(b.bytes)}</td>
+          <td class="c">
+            ${canRestore ? `<button data-act="restore-backup" data-name="${esc(b.name)}">还原</button>` : '<span class="muted">—</span>'}
+            <button class="danger" data-act="delete-backup" data-name="${esc(b.name)}">删除</button>
+          </td>
+        </tr>`
+      }).join('')}
+    </tbody></table></div>`
+}
+
+async function apply(action, ids, entries, name) {
+  const res = await fetch('/api/apply', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action, ids, entries, name }),
+  })
+  const body = await res.json()
+  if (!body.ok) { toast(`失败：${body.error}`); return }
+  const result = body.data
+  const parts = []
+  if (result.deleted != null) parts.push(`删除 ${result.deleted} 条`)
+  if (result.kind) parts.push('已还原')
+  else if (result.restored != null) parts.push(`还原 ${result.restored} 个`)
+  if (result.moved != null) parts.push(result.moved ? '已移动到备份' : result.message)
+  if (result.removed != null) {
+    if (result.files != null) parts.push(result.removed ? `已永久删除 ${result.files} 个文件（${fmtBytes(result.bytes)}）` : result.message)
+    else parts.push(result.removed ? '已删除' : result.message)
+  }
+  if (result.added != null) {
+    parts.push(result.added ? `重开 ${result.added} 个项目` : '项目已经打开')
+    if (result.added && result.live === false) parts.push('需要重启 OpenChamber 才会显示')
+  }
+  if (result.backup) parts.push(`备份：${result.backup}`)
+  toast(parts.join('，') || '完成')
+  await load()
+}
+
+document.addEventListener('change', (event) => {
+  const el = event.target
+  if (el.matches('[data-select]')) {
+    const card = el.closest('.card')
+    card.querySelectorAll('input[type=checkbox][data-row]').forEach((box) => (box.checked = el.checked))
+  }
+  if (el.matches('input[type=checkbox][data-row]')) {
+    const card = el.closest('.card')
+    const all = [...card.querySelectorAll('input[type=checkbox][data-row]')]
+    const selectAll = card.querySelector('[data-select]')
+    if (selectAll) selectAll.checked = all.length > 0 && all.every((box) => box.checked)
+  }
+})
+
+document.addEventListener('click', async (event) => {
+  const btn = event.target.closest('button[data-act]')
+  if (!btn) return
+  const act = btn.dataset.act
+  btn.disabled = true
+  try {
+    if (act === 'reopen-selected') {
+      const ids = rowsChecked('#sec-closed')
+      if (!ids.length) return toast('先勾选项目')
+      await apply('reopenProject', ids)
+    } else if (act === 'reopen') {
+      await apply('reopenProject', [btn.dataset.id])
+    } else if (act === 'delete-projects') {
+      const ids = rowsChecked('#sec-closed')
+      if (!ids.length) return toast('先勾选项目')
+      if (!confirm(`删除 ${ids.length} 个已关闭项目及其会话？`)) return
+      await apply('deleteProjects', ids)
+    } else if (act === 'delete-empty') {
+      const card = document.querySelector('#sec-empty')
+      const boxes = [...card.querySelectorAll('input[type=checkbox][data-row]')].filter((box) => box.checked)
+      if (!boxes.length) return toast('先勾选项目')
+      if (!confirm(`删除所选的 ${boxes.length} 项？`)) return
+      const projectIds = boxes.filter((b) => b.dataset.kind === 'project').map((b) => b.dataset.id)
+      const entries = boxes.filter((b) => b.dataset.kind === 'entry').map((b) => ({
+        table: b.dataset.table, projectId: b.dataset.project, directory: b.dataset.dir,
+      }))
+      if (projectIds.length) await apply('deleteProjects', projectIds)
+      if (entries.length) await apply('deleteOrphanEntries', [], entries)
+    } else if (act === 'restore-sessions') {
+      const ids = rowsChecked('#sec-archived')
+      if (!ids.length) return toast('先勾选会话')
+      await apply('restoreSessions', ids)
+    } else if (act === 'delete-sessions') {
+      const ids = rowsChecked('#sec-archived')
+      if (!ids.length) return toast('先勾选会话')
+      if (!confirm(`永久删除 ${ids.length} 个已归档会话及其消息？`)) return
+      await apply('deleteSessions', ids)
+    } else if (act === 'delete-legacy') {
+      if (!confirm('把整个旧版 storage 目录移动到 backups/？')) return
+      await apply('deleteLegacyStorage')
+    } else if (act === 'purge-legacy') {
+      const legacy = state.data.legacyStorage
+      if (!confirm(`备份后删除旧版 storage 目录${legacy ? `（${legacy.files} 个文件，${fmtBytes(legacy.bytes)}）` : ''}？会先复制到 backups/。`)) return
+      await apply('purgeLegacyStorage')
+    } else if (act === 'restore-backup') {
+      if (!confirm('从这个备份还原？同 id 的现有数据会被备份内容覆盖。')) return
+      await apply('restoreBackup', [], null, btn.dataset.name)
+    } else if (act === 'delete-backup') {
+      if (!confirm('删除这个备份文件？删除后不能再还原。')) return
+      await apply('deleteBackup', [], null, btn.dataset.name)
+    }
+  } finally {
+    btn.disabled = false
+  }
+})
+
+document.getElementById('refresh').addEventListener('click', () => location.reload())
+load()
+</script>
+</body>
+</html>
